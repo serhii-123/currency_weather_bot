@@ -1,17 +1,26 @@
 import { config } from 'dotenv';
 import { Bot, Keyboard } from 'grammy';
-import WeatherMsgBuilder from './classes/WeatherMsgBuilder';
-import CurrencyMsgBuilder from './classes/CurrencyMsgBuilder';
-import CurrencyDataFetcher from './classes/CurrencyDataFetcher';
-import WeatherDataFetcher from './classes/WeatherDataFetcher';
+import {
+    WeatherConversations,
+    CurrencyDataFetcher, CurrencyMsgBuilder, CurrencyError
+} from './classes';
+import { MyContext } from './types';
+import {
+    conversations,
+    createConversation
+} from '@grammyjs/conversations';
 
 config();
 
 async function start() {
-    const botToken: string = process.env.BOT_TOKEN as string;
-    const weatherToken: string = process.env.WEATHER_TOKEN as string;
-    const bot: Bot = new Bot(botToken);
-    const wdf: WeatherDataFetcher = new WeatherDataFetcher(weatherToken, 'Zhytomyr');
+    const BOT_TOKEN: string = process.env.BOT_TOKEN as string;
+    const WEATHER_TOKEN: string = process.env.WEATHER_TOKEN as string;
+    
+    const bot = new Bot<MyContext>(BOT_TOKEN);
+
+    bot.use(conversations());
+    bot.use(createConversation(WeatherConversations.windConversation));
+    bot.use(createConversation(WeatherConversations.weatherWithIntervalConversation));
 
     bot.command('start', async c => {
         try {
@@ -78,40 +87,33 @@ async function start() {
     });
 
     bot.hears('Вітер', async c => {
-        try {
-            const data = await wdf.getData('weather');
-            const msg: string = await WeatherMsgBuilder.getWindReply(data);
-
-            c.reply(msg);
-        } catch(e) {
-            await handleBotHandlerError(e);
-        }
+        await c.conversation.enter('windConversation', WEATHER_TOKEN);
     });
 
     bot.hears('Кожні 3 години', async c => {
-        try { 
-            const data = await wdf.getData('forecast');
-            const msg: string = await WeatherMsgBuilder.getReplyWithInterval(data, 3);
-            c.reply(msg);
-        } catch(e) {
-            await handleBotHandlerError(e);
-        }
+        const hoursInterval: number = 3;
+
+        await c.conversation.enter(
+            'weatherWithIntervalConversation',
+            WEATHER_TOKEN,
+            hoursInterval
+        );
     });
 
     bot.hears('Кожні 6 годин', async c => {
-        try {
-            const data = await wdf.getData('forecast');
-            const msg: string = await WeatherMsgBuilder.getReplyWithInterval(data, 6);
-            c.reply(msg);
-        } catch(e) {
-            await handleBotHandlerError(e);
-        }
+        const hoursInterval: number = 6;
+        
+        await c.conversation.enter(
+            'weatherWithIntervalConversation',
+            WEATHER_TOKEN,
+            hoursInterval
+        );
     });
 
     bot.hears('USD', async c => {
         try {
-            const currencyObj = await CurrencyDataFetcher.getUSDData(); 
-            const msg: string = await CurrencyMsgBuilder.getMessage(currencyObj, 'USD');
+            const currencyObj = await CurrencyDataFetcher.getUSDData();
+            const msg: string = await CurrencyMsgBuilder.getMessage(currencyObj);
 
             c.reply(msg);
         } catch(e) {
@@ -122,7 +124,7 @@ async function start() {
     bot.hears('EUR', async c => {
         try {
             const currencyObj = await CurrencyDataFetcher.getEURData();
-            const msg: string = await CurrencyMsgBuilder.getMessage(currencyObj, 'EUR');
+            const msg: string = await CurrencyMsgBuilder.getMessage(currencyObj);
 
             c.reply(msg);
         } catch(e) {
@@ -130,15 +132,19 @@ async function start() {
         }
     });
 
-    bot.catch((e) => {
-        console.log(e.message);
+    bot.catch((err) => {
+        const sliceIndex: number = err.message.indexOf(':') + 2;
+        const message = err.message.slice(sliceIndex);
+        
+        console.log(err.message);
+        err.ctx.reply(message);
     });
 
     async function handleBotHandlerError(e) {
-        if(e instanceof Error)
-            throw new Error(e.message);
+        if(e instanceof CurrencyError)
+            throw new Error('Не вдається отримати дані про курси валют. Будь ласка, спробуйте пізніше');
         else
-            throw new Error('Some error');
+            throw new Error('Сталася помилка. Будь ласка, спробуйте пізніше');
     }
 
     bot.start();

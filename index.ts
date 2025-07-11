@@ -1,7 +1,7 @@
 import { config } from 'dotenv';
-import { Bot, Keyboard } from 'grammy';
+import { Bot, session } from 'grammy';
 import {
-    WeatherConversations,
+    KeyboardBuilder, WeatherConversations,
     CurrencyDataFetcher, CurrencyMsgBuilder, CurrencyError
 } from './classes';
 import { MyContext } from './types';
@@ -18,16 +18,18 @@ async function start() {
     
     const bot = new Bot<MyContext>(BOT_TOKEN);
 
+    bot.use(session({
+        initial: () => ({ city: '' })
+    }));
     bot.use(conversations());
     bot.use(createConversation(WeatherConversations.windConversation));
     bot.use(createConversation(WeatherConversations.weatherWithIntervalConversation));
+    bot.use(createConversation(WeatherConversations.changeCityConversation));
+    bot.use(createConversation(WeatherConversations.defaultConversation));
 
     bot.command('start', async c => {
         try {
-            const kb = new Keyboard()
-                .text('Погода')
-                .row()
-                .text('Курс валют');
+            const kb = await KeyboardBuilder.getMainKeyboard();
             
             c.reply('...', {
                 reply_markup: kb
@@ -38,30 +40,12 @@ async function start() {
     });
 
     bot.hears('Погода', async c => {
-        try {
-            const kb = new Keyboard()
-                .text('Кожні 3 години')
-                .text('Кожні 6 годин')
-                .row()
-                .text('Вітер')
-                .row()
-                .text('Попереднє меню');
-            
-            c.reply('...', {
-                reply_markup: kb
-            });
-        } catch(e) {
-            await handleBotHandlerError(e);
-        }
+        await c.conversation.enter('defaultConversation');
     });
 
     bot.hears('Курс валют', async c => {
         try {
-            const kb = new Keyboard()
-                .text('USD')
-                .text('EUR')
-                .row()
-                .text('Попереднє меню');
+            const kb = await KeyboardBuilder.getCurrencyKeyboard();
 
             c.reply('...', {
                 reply_markup: kb
@@ -73,10 +57,7 @@ async function start() {
 
     bot.hears('Попереднє меню', async c => {
         try {
-            const kb = new Keyboard()
-                .text('Погода')
-                .row()
-                .text('Курс валют');
+            const kb = await KeyboardBuilder.getMainKeyboard();
             
             c.reply('...', {
                 reply_markup: kb
@@ -108,6 +89,10 @@ async function start() {
             WEATHER_TOKEN,
             hoursInterval
         );
+    });
+
+    bot.hears('Змінити місто', async c => {
+        await c.conversation.enter('changeCityConversation');
     });
 
     bot.hears('USD', async c => {
